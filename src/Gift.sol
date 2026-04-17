@@ -7,7 +7,20 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 contract Gift{
     Users public usersContract;
     IERC20 public token;
-    mapping(address => uint256) public pendingGifts;
+    mapping(address => uint256) public Balance;
+
+    struct ClaimRecord {
+        uint256 amount;
+        bytes6 claimType;
+        uint256 timestamp;
+    }
+    struct GiftRecord {
+        address from;
+        uint256 amount;
+        uint256 timestamp;
+    }
+    mapping(address => ClaimRecord[]) public claimHistory;
+    mapping(address => GiftRecord[]) public giftHistory;
 
     event GiftSent(address indexed from, address indexed to, uint256 amount);
     event GiftClaimed(address indexed by, uint256 amount);
@@ -33,23 +46,62 @@ contract Gift{
         // Transfer the gift amount into the contract
         token.transferFrom(msg.sender, address(this), _amount);
 
+
         // Add the amount to the recipient's pending gifts
-        pendingGifts[recipient] += _amount;
+        Balance[recipient] += _amount;
+        // Record the individual gift details
+        giftHistory[recipient].push(GiftRecord({
+            from: msg.sender,
+            amount: _amount,
+            timestamp: block.timestamp
+        }));
 
         emit GiftSent(msg.sender, recipient, _amount);
     }
-   function claimGiftByCrpto(uint256 _amount) public {
-        uint256 amount = pendingGifts[msg.sender];
+   function claimGiftByCrypto(uint256 _amount) public {
+        uint256 amount = Balance[msg.sender];
         require(usersContract.isItPaused() == false, "Contract is paused");
         require(amount > 0, "No pending gifts to claim");
         require(amount >= _amount, "Insufficient pending gift amount");
 
         // Reset the pending gift amount before transferring to prevent reentrancy issues
-        pendingGifts[msg.sender] = pendingGifts[msg.sender] - _amount;
+        Balance[msg.sender] = Balance[msg.sender] - _amount;
+
+        // Record the individual claim details
+        claimHistory[msg.sender].push(ClaimRecord({
+            amount: _amount,
+            claimType: "Crypto",
+            timestamp: block.timestamp
+        }));
 
         // Transfer the gift amount from the contract to the recipient
         token.transfer(msg.sender, _amount);
 
         emit GiftClaimed(msg.sender, _amount);
     } 
+    function claimGiftByFiat(uint256 _amount) public {
+        uint256 bal = Balance[msg.sender];
+        require(usersContract.isItPaused() == false, "Contract is paused");
+        require(bal > 0, "No pending gifts to claim");
+        require(bal >= _amount, "Insufficient pending gift amount");
+
+        // Reset the pending gift amount before processing the claim to prevent reentrancy issues
+        Balance[msg.sender] = Balance[msg.sender] - _amount;
+
+        // Record the individual claim details
+        claimHistory[msg.sender].push(ClaimRecord({
+            amount: _amount,
+            claimType: "Fiat",
+            timestamp: block.timestamp
+        }));
+
+        emit GiftClaimed(msg.sender, _amount);
+    }
+
+    function getClaimHistory(address _user) public view returns (ClaimRecord[] memory) {
+        return claimHistory[_user];
+    }
+    function getGiftHistory(address _user) public view returns (GiftRecord[] memory) {
+        return giftHistory[_user];
+    }
 }

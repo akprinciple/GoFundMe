@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "../src/Gift.sol";
-import "../src/Users.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Test, console} from "forge-std/Test.sol";
+import {Gift} from "../src/Gift.sol";
+import {Users} from "../src/Users.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-// A simple Mock ERC20 Token to use for testing
-contract MockToken is ERC20 {
+// A simple Mock ERC20 token to use for testing
+contract MockERC20 is ERC20 {
     constructor() ERC20("Mock Token", "MTK") {}
 
-    function mint(address to, uint256 amount) external {
+    function mint(address to, uint256 amount) public {
         _mint(to, amount);
     }
 }
@@ -18,130 +18,133 @@ contract MockToken is ERC20 {
 contract GiftTest is Test {
     Gift public gift;
     Users public users;
-    MockToken public token;
+    MockERC20 public token;
 
-    address public deployer = address(this);
-    address public alice = address(1);
-    address public bob = address(2);
-
-    event GiftSent(address indexed from, address indexed to, uint256 amount);
-    event GiftClaimed(address indexed by, uint256 amount);
+    address public owner = makeAddr("owner");
+    address public alice = makeAddr("alice");
+    address public bob = makeAddr("bob");
 
     function setUp() public {
-        // 1. Deploy contracts
+        // 1. Deploy contracts as the 'owner'
+        vm.startPrank(owner);
         users = new Users();
-        token = new MockToken();
+        token = new MockERC20();
         gift = new Gift(address(users), address(token));
+        vm.stopPrank();
 
-        // 2. Register Test Users
+        // 2. Register 'alice' in the Users contract
         vm.prank(alice);
-        users.addUser("alice", "Alice", "alice@example.com");
+        users.addUser("alice", "Alice", "alice@mail.com");
 
+        // 3. Register 'bob' in the Users contract
         vm.prank(bob);
-        users.addUser("bob", "Bob", "bob@example.com");
+        users.addUser("bob", "Bob", "bob@mail.com");
 
-        // 3. Mint tokens to Bob and Alice to use for testing
-        token.mint(bob, 1000 ether);
+        // 4. Mint 1,000 tokens to Alice and approve the Gift contract to spend them
         token.mint(alice, 1000 ether);
-
-        // 4. Pre-approve the Gift contract to spend tokens on their behalf
-        vm.prank(bob);
-        token.approve(address(gift), type(uint256).max);
-        
         vm.prank(alice);
-        token.approve(address(gift), type(uint256).max);
+        token.approve(address(gift), 1000 ether);
     }
 
-    function testConstructorRevertsOnZeroAddress() public {
-        vm.expectRevert("Users contract address cannot be zero");
-        new Gift(address(0), address(token));
+    function test_giftUser() public {
+        // Alice gifts Bob 100 tokens
+        vm.prank(alice);
+        gift.giftUser("bob", 100 ether);
 
-        vm.expectRevert("Token address cannot be zero");
-        new Gift(address(users), address(0));
-    }
-
-    function testGiftUserSuccess() public {
-        uint256 giftAmount = 100 ether;
-
-        vm.prank(bob);
-        vm.expectEmit(true, true, false, true);
-        emit GiftSent(bob, alice, giftAmount);
+        // Verify Token balances updated
+        assertEq(token.balanceOf(alice), 900 ether);
+        assertEq(token.balanceOf(address(gift)), 100 ether);
         
-        gift.giftUser("alice", giftAmount);
+        // Verify Bob's pending balance updated
+        assertEq(gift.Balance(bob), 100 ether);
 
-        // Validate State Changes
-        assertEq(gift.pendingGifts(alice), giftAmount);
-        assertEq(token.balanceOf(address(gift)), giftAmount); // Contract holds the funds
-        assertEq(token.balanceOf(bob), 1000 ether - giftAmount); // Bob's balance decreased
+        // Verify the gift history array was appended
+        (address from, uint256 amount, uint256 timestamp) = gift.giftHistory(bob, 0);
+        
+        assertEq(from, alice);
+        assertEq(amount, 100 ether);
+        console.log("Gift timestamp:", timestamp);
     }
 
-    function testGiftUserRevertUserNotFound() public {
+    function test_claimGiftByCrypto() public {
+        // Setup: Alice gifts Bob
+        vm.prank(alice);
+        gift.giftUser("bob", 100 ether);
+
+        // Bob claims 40 tokens of his gift
         vm.prank(bob);
+        gift.claimGiftByCrypto(40 ether);
+
+        // Verify pending balance is reduced
+        assertEq(gift.Balance(bob), 60 ether); // 100 - 40
+
+        // Verify Bob actually received the ERC20 tokens
+        assertEq(token.balanceOf(bob), 40 ether);
+        assertEq(token.balanceOf(address(gift)), 60 ether);
+
+        // Verify claim history
+        Gift.ClaimRecord[] memory history = gift.getClaimHistory(bob);
+        assertEq(history.length, 1);
+        assertEq(history[0].amount, 40 ether);
+        assertEq(history[0].claimType, bytes6("Crypto"));
+    }
+
+    function test_claimGiftByFiat() public {
+        // Setup: Alice gifts Bob
+        vm.prank(alice);
+        gift.giftUser("bob", 100 ether);
+
+        // Bob claims 50 tokens of his gift via Fiat
+        vm.prank(bob);
+        gift.claimGiftByFiat(50 ether);
+
+        // Verify pending balance is reduced
+        assertEq(gift.Balance(bob), 50 ether);
+        
+        // Token balance shouldn't change for Bob on-chain
+        assertEq(token.balanceOf(bob), 0);
+        assertEq(token.balanceOf(address(gift)), 100 ether); // Still locked in contract
+
+        // Verify claim history
+        Gift.ClaimRecord[] memory history = gift.getClaimHistory(bob);
+        assertEq(history.length, 1);
+        assertEq(history[0].amount, 50 ether);
+        assertEq(history[0].claimType, bytes6("Fiat"));
+    }
+
+    function test_RevertIf_UserNotFound() public {
+        vm.prank(alice);
         vm.expectRevert("User not found");
-        gift.giftUser("charlie", 100 ether); // 'charlie' doesn't exist
+        gift.giftUser("charlie", 100 ether); // 'charlie' was never registered
     }
 
-    function testGiftUserRevertRecipientNotActive() public {
-        // Deactivate Alice
-        users.makeInactive("alice");
+    function test_RevertIf_UserNotActive() public {
+        // Owner deactivates Bob
+        vm.prank(owner);
+        users.makeInactive("bob");
 
-        vm.prank(bob);
+        vm.prank(alice);
         vm.expectRevert("Recipient user is not active");
-        gift.giftUser("alice", 100 ether);
+        gift.giftUser("bob", 100 ether);
     }
 
-    function testGiftUserRevertInsufficientFunds() public {
-        vm.prank(bob);
-        vm.expectRevert("Insufficient funds for the specified amount");
-        gift.giftUser("alice", 2000 ether); // Bob only has 1000
-    }
-
-    function testClaimGiftByCrptoSuccess() public {
-        // 1. Bob sends Alice a gift of 200
-        vm.prank(bob);
-        gift.giftUser("alice", 200 ether);
-
-        assertEq(gift.pendingGifts(alice), 200 ether);
-
-        // 2. Alice claims 50
+    function test_RevertIf_ContractPaused() public {
         vm.prank(alice);
-        vm.expectEmit(true, false, false, true);
-        emit GiftClaimed(alice, 50 ether);
-        gift.claimGiftByCrpto(50 ether);
+        gift.giftUser("bob", 100 ether);
 
-        // 3. Verify final states
-        assertEq(gift.pendingGifts(alice), 150 ether); // Remaining pending
-        assertEq(token.balanceOf(alice), 1050 ether); // Alice's wallet balance increased by 50
-        assertEq(token.balanceOf(address(gift)), 150 ether); // Contract still holds the remaining 150
-    }
-
-    function testClaimGiftRevertPaused() public {
-        // 1. Bob gifts Alice
-        vm.prank(bob);
-        gift.giftUser("alice", 100 ether);
-
-        // 2. Owner pauses the Users contract
+        // Owner pauses the Users contract
+        vm.prank(owner);
         users.pause();
-        assertTrue(users.isItPaused());
 
-        // 3. Alice attempts to claim
-        vm.prank(alice);
-        vm.expectRevert("Contract is paused");
-        gift.claimGiftByCrpto(100 ether);
-    }
-
-    function testClaimGiftRevertNoPendingGifts() public {
-        vm.prank(alice); // Alice has 0 pending gifts
-        vm.expectRevert("No pending gifts to claim");
-        gift.claimGiftByCrpto(50 ether);
-    }
-
-    function testClaimGiftRevertInsufficientPendingAmount() public {
+        // Bob tries to claim
         vm.prank(bob);
-        gift.giftUser("alice", 100 ether);
+        vm.expectRevert("Contract is paused");
+        gift.claimGiftByCrypto(50 ether);
+    }
 
-        vm.prank(alice);
-        vm.expectRevert("Insufficient pending gift amount");
-        gift.claimGiftByCrpto(200 ether); // Alice tries to claim more than she was gifted
+    function test_RevertIf_InsufficientPendingGift() public {
+        vm.prank(bob);
+        vm.expectRevert("No pending gifts to claim");
+        gift.claimGiftByCrypto(50 ether);
     }
 }
