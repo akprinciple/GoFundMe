@@ -4,13 +4,13 @@ pragma solidity ^0.8.20;
 import {Users} from "./Users.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {P2P} from "./P2P.sol";
+import {P2PEscrow} from "./P2PEscrow.sol";
+
 contract Gift{
     using SafeERC20 for IERC20;
 
     Users public immutable usersContract;
     IERC20 public immutable token;
-    P2P public immutable p2pContract;
     mapping(address => uint256) public Balance;
 
     struct ClaimRecord {
@@ -25,17 +25,20 @@ contract Gift{
     }
     mapping(address => ClaimRecord[]) public claimHistory;
     mapping(address => GiftRecord[]) public giftHistory;
-    mapping(address => uint256) public hasPendingWithdrawal;
-    address[] public pendingFiatWithdrawals;
+    P2PEscrow public escrowContract;
     event GiftSent(address indexed from, address indexed to, uint256 amount);
     event GiftClaimed(address indexed by, uint256 amount);
 
-    constructor(address _usersContract, address _token, address _p2pContract) {
+    constructor(address _usersContract, address _token) {
         require(_usersContract != address(0), "Users contract address cannot be zero");
         require(_token != address(0), "Token address cannot be zero");
         usersContract = Users(_usersContract);
         token = IERC20(_token);
-        p2pContract = P2P(_p2pContract);
+    }
+
+    function setEscrowContract(address _escrow) external {
+        require(msg.sender == usersContract.owner(), "Only owner can perform this action");
+        escrowContract = P2PEscrow(_escrow);
     }
 
     function giftUser(string memory _username, uint256 _amount) public {
@@ -71,9 +74,6 @@ contract Gift{
         require(_amount > 0, "Amount must be greater than zero");
         require(amount > 0, "No pending gifts to claim");
         require(amount >= _amount, "Insufficient pending gift amount");
-        if(hasPendingWithdrawal[msg.sender] > 0){
-            revert("You have a pending withdrawal"); // Reset pending gift flag after claiming
-        }
         // Reset the pending gift amount before transferring to prevent reentrancy issues
         Balance[msg.sender] = Balance[msg.sender] - _amount;
 
@@ -89,33 +89,28 @@ contract Gift{
          
         emit GiftClaimed(msg.sender, _amount);
     } 
-    function claimGiftByFiat(uint256 _tokenAmount,  string memory _accountName, string memory _accountNumber, string memory _bankName) public {
+    function claimGiftByFiat(uint256 _amount, string memory _expectedFiat, string memory _paymentDetails) public {
         uint256 bal = Balance[msg.sender];
         require(usersContract.isItPaused() == false, "Contract is paused");
-        require(_tokenAmount > 0, "Token amount must be greater than zero");
+        require(address(escrowContract) != address(0), "Escrow contract not configured");
+        require(_amount > 0, "Amount must be greater than zero");
         require(bal > 0, "No pending gifts to claim");
-        require(bal >= _tokenAmount, "Insufficient pending gift amount");
-        if(hasPendingWithdrawal[msg.sender] > 0){
-            revert("You have a pending withdrawal"); // Reset pending gift flag after claiming
-        }
+        require(bal >= _amount, "Insufficient pending gift amount");
+
         // Reset the pending gift amount before processing the claim to prevent reentrancy issues
-        Balance[msg.sender] = Balance[msg.sender] - _tokenAmount;
+        Balance[msg.sender] = Balance[msg.sender] - _amount;
 
-
-
-        // Set pending gift flag until off-chain process is completed
-        hasPendingWithdrawal[msg.sender] = _tokenAmount;
-        // pendingFiatWithdrawals.push(msg.sender);
-         p2pContract.createOrder(msg.sender, _tokenAmount, _accountName, _accountNumber, _bankName);
+        token.approve(address(escrowContract), _amount);
+        escrowContract.createOrder(msg.sender, _amount, _expectedFiat, _paymentDetails);
        
         // Record the individual claim details
-        // claimHistory[msg.sender].push(ClaimRecord({
-        //     amount: _amount,
-        //     claimType: "Fiat",
-        //     timestamp: block.timestamp
-        // }));
+        claimHistory[msg.sender].push(ClaimRecord({
+            amount: _amount,
+            claimType: "Fiat",
+            timestamp: block.timestamp
+        }));
 
-        emit GiftClaimed(msg.sender, _tokenAmount);
+        emit GiftClaimed(msg.sender, _amount);
     }
 
     function getClaimHistory(address _user) public view returns (ClaimRecord[] memory) {
@@ -126,34 +121,6 @@ contract Gift{
     }
     function getBalance(address _user) public view returns (uint256) {
         return Balance[_user];
-    }
-    function getPendingWithdrawal() public view returns (uint256) {
-        return hasPendingWithdrawal[msg.sender];
-    }
-    function cancelPendingWithdrawal() public {
-        uint256 pendingAmount = hasPendingWithdrawal[msg.sender];
-        require(hasPendingWithdrawal[msg.sender] > 0, "No pending withdrawal to cancel");
-        hasPendingWithdrawal[msg.sender] = 0;
-        Balance[msg.sender] += pendingAmount; // Return the amount back to pending gifts
-    }
-
-    // Admin function to finalize a fiat withdrawal after bank transfer is complete
-    // function processFiatWithdrawal(address _user) public {
-    //     require(msg.sender == usersContract.owner(), "Only owner can process fiat withdrawals");
-    //     uint256 amount = hasPendingWithdrawal[_user];
-    //     require(amount > 0, "No pending withdrawal to process");
-    //     hasPendingWithdrawal[_user] = 0;
-    //     token.safeTransfer(msg.sender, amount); // Move locked tokens to admin wallet
-    // }
-    function processFiatWithdrawal(address _user) public {
-        require(msg.sender == usersContract.owner(), "Only owner can process fiat withdrawals");
-        uint256 amount = hasPendingWithdrawal[_user];
-        require(amount > 0, "No pending withdrawal to process");
-        hasPendingWithdrawal[_user] = 0;
-        token.safeTransfer(msg.sender, amount); // Move locked tokens to admin wallet
-    }
-    function getPendingFiatWithdrawals() public view returns (address[] memory) {
-        return pendingFiatWithdrawals;
     }
 
 }

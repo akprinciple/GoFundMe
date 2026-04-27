@@ -6,11 +6,12 @@ contract Users {
     struct User { 
         string name;
         string email;
-        uint256 balance;
+        uint256 bal;
         bool status;
     }
     string[] public userNames;
     mapping(string => address) public usernameToAddress;
+    mapping(address => string) public addressToUsername;
     mapping (address => User ) public userInfo;
     mapping(string => bool) public emailExists;
     bool public isPaused;
@@ -33,9 +34,10 @@ contract Users {
         
         require(!emailExists[_email], "Email already exists");
 
-        userInfo[msg.sender] = User({name: _name, email: _email, balance: 0, status: true});
+        userInfo[msg.sender] = User({name: _name, email: _email, bal: 0, status: true});
         userNames.push(_username);
         usernameToAddress[_username] = msg.sender;
+        addressToUsername[msg.sender] = _username;
         emailExists[_email] = true;
     }
     
@@ -45,7 +47,7 @@ contract Users {
 
     function getUserByUsername(string memory _username) public view returns(string memory, uint256, bool) {
         address userAddress = usernameToAddress[_username];
-        return (userInfo[userAddress].email, userInfo[userAddress].balance, userInfo[userAddress].status);
+        return (userInfo[userAddress].email, userInfo[userAddress].bal, userInfo[userAddress].status);
     }
     
     // Get All users whose status is true
@@ -124,8 +126,9 @@ contract Users {
                 }
             }
             delete emailExists[userEmail];
-                delete usernameToAddress[_username];
-                delete userInfo[userAddress];
+            delete usernameToAddress[_username];
+            delete addressToUsername[userAddress];
+            delete userInfo[userAddress];
         }
 
         
