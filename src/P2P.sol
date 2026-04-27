@@ -118,7 +118,7 @@ function addNewBuyer(address _buyer, string memory _buyerName, uint256 unitPrice
             }
 
             // Credit Buyer's account with tokens
-            token.safeTransfer(order.buyer, order.tokenAmount);
+            token.safeTransferFrom(gift. order.buyer, order.tokenAmount);
         }
 
 
