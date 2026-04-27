@@ -95,26 +95,10 @@ contract Gift{
         require(_tokenAmount > 0, "Token amount must be greater than zero");
         require(bal > 0, "No pending gifts to claim");
         require(bal >= _tokenAmount, "Insufficient pending gift amount");
-        // if(hasPendingWithdrawal[msg.sender] > 0){
-        //     revert("You have a pending withdrawal"); // Reset pending gift flag after claiming
-        // }
-        // Reset the pending gift amount before processing the claim to prevent reentrancy issues
         Balance[msg.sender] = Balance[msg.sender] - _tokenAmount;
-        token.safeApprove(address(p2pContract), _tokenAmount); // Approve P2P contract to transfer tokens on behalf of the user
         
-
-        // Set pending gift flag until off-chain process is completed
-        // hasPendingWithdrawal[msg.sender] = _tokenAmount;
-        // pendingFiatWithdrawals.push(msg.sender);
          p2pContract.createOrder(msg.sender, _tokenAmount, _accountName, _accountNumber, _bankName);
        
-        // Record the individual claim details
-        // claimHistory[msg.sender].push(ClaimRecord({
-        //     amount: _amount,
-        //     claimType: "Fiat",
-        //     timestamp: block.timestamp
-        // }));
-
         emit GiftClaimed(msg.sender, _tokenAmount);
     }
 
@@ -123,10 +107,10 @@ contract Gift{
     }
     function makeTransferByP2P(address _buyer, uint256 _orderId) external {
         require(msg.sender == address(p2pContract), "Only P2P contract can call this function");
-        require(p2pContract.orders[_orderId].buyer == _buyer, "Invalid buyer for this order");
-        uint256 amount = p2pContract.orders[_orderId].tokenAmount;
-        //transfer
-        token.safeTransferFrom(address(this), _buyer, amount);
+        P2P.Order memory order = p2pContract.getOrder(_orderId);
+        require(order.status == P2P.OrderStatus.Received, "Order is not in the correct state for transfer");
+            // Transfer the gift amount from the contract to the buyer
+            token.safeTransfer(_buyer, order.tokenAmount);
     }
     function getGiftHistory(address _user) public view returns (GiftRecord[] memory) {
         return giftHistory[_user];
