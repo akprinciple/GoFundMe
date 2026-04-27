@@ -14,7 +14,7 @@ contract P2P{
         string bankName;      
         OrderStatus status;
     }
-    enum OrderStatus { Open, Locked, Completed, Cancelled }
+    enum OrderStatus { Open, Locked, Completed, Received, Cancelled }
 
     struct BuyerInfo {
         address buyerAddress;
@@ -30,7 +30,7 @@ contract P2P{
     mapping(uint256 => Order) public orders;
     uint256 public orderCount;
     mapping(address => uint256) public activeOrderId; 
-    mapping(address => uint256) public buyerPendingTrans;
+    mapping(address => uint256[]) public buyerPendingTrans;
 
    function createOrder(address _seller, uint256 _tokenAmount,  string memory _accountName, string memory _accountNumber, string memory _bankName) external {
         orderCount++;
@@ -73,7 +73,55 @@ function addNewBuyer(address _buyer, string memory _buyerName, uint256 unitPrice
         order.buyer = _buyer;
         order.status = OrderStatus.Locked;
 
+        // Alert buyer
+            buyerPendingTrans[_buyer].push(_orderId);
     }
+    function cancelOrder(address _seller, uint256 _orderId) external {
+        Order storage order = orders[_orderId];
+        require(order.seller == _seller, "Only the seller can cancel the order");
+        require(order.status == OrderStatus.Open, "Only open orders can be canceled");
+        order.status = OrderStatus.Cancelled;
+    }
+
+    function completeOrder(address _buyer, uint256 _orderId) external {
+        // Only the buyer can complete the order
+        Order storage order = orders[_orderId];
+        require(order.buyer == _buyer, "Only the buyer can complete the order");
+        if(order.status == OrderStatus.Locked){
+            order.status = OrderStatus.Completed;
+        }
+
+        // // Update buyer info
+        // BuyerInfo storage buyerInfo = publicbuyers[order.buyer];
+        // buyerInfo.totalOrders += 1;
+        // buyerInfo.totalVolume += order.tokenAmount;
+    }
+    function receiveOrder(address _seller, address _buyer, uint256 _orderId) external {
+        // Only the seller can receive the order
+        Order storage order = orders[_orderId];
+        require(order.seller == _seller, "Only the seller can receive the order");
+        if(order.status == OrderStatus.Completed || order.status == OrderStatus.Locked){
+            order.status = OrderStatus.Received;
+            // Update buyer info
+            BuyerInfo storage buyerInfo = publicbuyers[order.buyer];
+            buyerInfo.totalOrders += 1;
+            buyerInfo.totalVolume += order.tokenAmount;
+
+            //Remove order from buyer's pending transactions
+            uint256[] storage pendingOrders = buyerPendingTrans[order.buyer];
+            for(uint256 i = 0; i < pendingOrders.length; i++){
+                if(pendingOrders[i] == _orderId){
+                    pendingOrders[i] = pendingOrders[pendingOrders.length - 1];
+                    pendingOrders.pop();
+                    break;
+                }
+            }
+
+            // Credit Buyer's account with tokens
+            token.safeTransfer(order.buyer, order.tokenAmount);
+        }
+
+
 
 
 
