@@ -41,8 +41,18 @@ contract Users {
         emailExists[_email] = true;
     }
     
-    function getAllUsers() public view returns(string[] memory) {
-        return userNames;
+    function getAllUsers(uint256 offset, uint256 limit) public view returns(string[] memory) {
+        uint256 total = userNames.length;
+        if (offset >= total) {
+            return new string[](0);
+        }
+        uint256 end = offset + limit > total ? total : offset + limit;
+        uint256 size = end - offset;
+        string[] memory result = new string[](size);
+        for (uint256 i = 0; i < size; i++) {
+            result[i] = userNames[offset + i];
+        }
+        return result;
     }
 
     function getUserByUsername(string memory _username) public view returns(string memory, uint256, bool) {
@@ -51,9 +61,15 @@ contract Users {
     }
     
     // Get All users whose status is true
-    function getActiveUsers() public view returns(string[] memory) {
+    function getActiveUsers(uint256 offset, uint256 limit) public view returns(string[] memory) {
+        uint256 total = userNames.length;
+        if (offset >= total) {
+            return new string[](0);
+        }
+        uint256 end = offset + limit > total ? total : offset + limit;
+
         uint256 activeCount = 0;
-        for (uint256 i = 0; i < userNames.length; i++){
+        for (uint256 i = offset; i < end; i++){
             address userAddress = usernameToAddress[userNames[i]];
             if(userInfo[userAddress].status){
                 activeCount++;
@@ -62,7 +78,7 @@ contract Users {
 
         string[] memory activeUsers = new string[](activeCount);
         uint256 counter = 0;
-        for (uint256 i = 0; i < userNames.length; i++){
+        for (uint256 i = offset; i < end; i++){
               address userAddress = usernameToAddress[userNames[i]];
             if(userInfo[userAddress].status){
                 activeUsers[counter] = userNames[i];
@@ -72,12 +88,17 @@ contract Users {
         return activeUsers;
     }
 
-    function getInactiveUsers() public view returns (string[] memory) {
-    uint256 totalUsers = userNames.length;
-    uint256 inactiveCount = 0;
+    function getInactiveUsers(uint256 offset, uint256 limit) public view returns (string[] memory) {
+        uint256 totalUsers = userNames.length;
+        if (offset >= totalUsers) {
+            return new string[](0);
+        }
+        uint256 end = offset + limit > totalUsers ? totalUsers : offset + limit;
+
+        uint256 inactiveCount = 0;
 
     // First Pass: Count how many are inactive to size the array perfectly
-    for (uint256 i = 0; i < totalUsers; i++) {
+    for (uint256 i = offset; i < end; i++) {
           address userAddress = usernameToAddress[userNames[i]];
         if (userInfo[userAddress].status == false) {
             inactiveCount++;
@@ -89,7 +110,7 @@ contract Users {
     uint256 currentIndex = 0;
 
     // Second Pass: Fill the array
-    for (uint256 i = 0; i < totalUsers; i++) {
+    for (uint256 i = offset; i < end; i++) {
           address userAddress = usernameToAddress[userNames[i]];
         if (userInfo[userAddress].status == false) {
             inactiveUsers[currentIndex] = userNames[i];

@@ -15,7 +15,7 @@ contract UsersTest is Test {
         vm.prank(address(1));
         users.addUser("alice", "Alice", "alice@example.com");
 
-        string[] memory allUsers = users.getAllUsers();
+        string[] memory allUsers = users.getAllUsers(0, 10);
         assertEq(allUsers.length, 1);
         assertEq(allUsers[0], "alice");
 
@@ -59,12 +59,12 @@ contract UsersTest is Test {
 
         users.makeInactive("bob");
 
-        string[] memory active = users.getActiveUsers();
+        string[] memory active = users.getActiveUsers(0, 10);
         assertEq(active.length, 2);
         assertEq(active[0], "alice");
         assertEq(active[1], "charlie");
 
-        string[] memory inactive = users.getInactiveUsers();
+        string[] memory inactive = users.getInactiveUsers(0, 10);
         assertEq(inactive.length, 1);
         assertEq(inactive[0], "bob");
     }
@@ -91,7 +91,7 @@ contract UsersTest is Test {
 
         users.deleteUser("alice");
 
-        string[] memory allUsers = users.getAllUsers();
+        string[] memory allUsers = users.getAllUsers(0, 10);
         assertEq(allUsers.length, 1);
         assertEq(allUsers[0], "bob");
 
@@ -101,5 +101,26 @@ contract UsersTest is Test {
 
         (string memory email, , ) = users.getUserByUsername("alice");
         assertEq(email, "");
+    }
+
+    function testPause() public {
+        assertFalse(users.isItPaused());
+        users.pause();
+        assertTrue(users.isItPaused());
+    }
+
+    function testRevert_PauseNotOwner() public {
+        vm.prank(address(1));
+        vm.expectRevert("Only owner can perform this action");
+        users.pause();
+    }
+
+    function testRevert_DeleteUserNotOwner() public {
+        vm.prank(address(1));
+        users.addUser("alice", "Alice", "alice@example.com");
+
+        vm.prank(address(2));
+        vm.expectRevert("Only owner can perform this action");
+        users.deleteUser("alice");
     }
 }

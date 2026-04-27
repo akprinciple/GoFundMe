@@ -48,6 +48,7 @@ contract P2P{
         giftContract = _giftContract;
     }
    function createOrder(address _seller, uint256 _tokenAmount,  string memory _accountName, string memory _accountNumber, string memory _bankName) external {
+        require(activeOrderId[_seller] == 0, "Seller already has an active order. Please complete or cancel it before creating a new one.");
         orderCount++;
         orders[orderCount] = Order({
             seller: _seller,
@@ -98,7 +99,7 @@ function addNewBuyer(address _buyer, string memory _buyerName, uint256 unitPrice
         Order storage order = orders[_orderId];
         if(order.status == OrderStatus.Open){
             require(order.seller == _user, "Only the seller can cancel the order");
-        }elseif(order.status == OrderStatus.Locked){
+        }else if(order.status == OrderStatus.Locked){
             require(order.buyer == _user, "Only the buyer can cancel the order");
 
         }
@@ -152,10 +153,44 @@ function addNewBuyer(address _buyer, string memory _buyerName, uint256 unitPrice
             }
 
             IGift(giftContract).makeTransferByP2P(order.buyer, _orderId);
+            activeOrderId[order.seller] = 0; // Clear active order for the seller
             emit OrderReceived(_seller, _buyer, _orderId);
         }
     }
     function getOrder(uint256 _orderId) external view returns (Order memory) {
         return orders[_orderId];
+    }
+    function getBuyerPendingOrders(address _buyer) external view returns (uint256[] memory) {
+        return buyerPendingTrans[_buyer];
+    }   
+    
+    function getAllBuyers(uint256 offset, uint256 limit) external view returns (BuyerInfo[] memory) {
+        uint256 total = allBuyers.length;
+        if (offset >= total) {
+            return new BuyerInfo[](0);
+        }
+
+        uint256 end = offset + limit > total ? total : offset + limit;
+        uint256 size = end - offset;
+        BuyerInfo[] memory result = new BuyerInfo[](size);
+
+        for (uint256 i = 0; i < size; i++) {
+            result[i] = allBuyers[offset + i];
+        }
+        
+        return result;
+    }
+    function getBuyerCount() external view returns (uint256) {
+        return allBuyers.length;
+    }
+    function getActiveOrderId(address _seller) external view returns (uint256) {
+        return activeOrderId[_seller];
+    }
+    function getBuyerInfoByAddress(address _buyer) external view returns (BuyerInfo memory) {
+        return publicbuyers[_buyer];
+    }
+    function changeBuyerStatus(address _buyer) external {
+        require(publicbuyers[_buyer].buyerAddress != address(0), "Buyer does not exist");
+        publicbuyers[_buyer].buyerStatus = !publicbuyers[_buyer].buyerStatus;
     }
 }
