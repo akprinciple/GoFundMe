@@ -5,6 +5,7 @@ interface IGift {
 }
 contract P2P{
 
+    address public owner;
 
     struct Order {
         address seller;             // Wants Fiat, providing Crypto
@@ -46,6 +47,13 @@ contract P2P{
         require(_giftContract != address(0));
         require(giftContract == address(0));
         giftContract = _giftContract;
+    }
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner can perform this action");
+        _;
+    }
+    constructor() {
+        owner = msg.sender;
     }
    function createOrder(address _seller, uint256 _tokenAmount,  string memory _accountName, string memory _accountNumber, string memory _bankName) external {
         require(activeOrderId[_seller] == 0, "Seller already has an active order. Please complete or cancel it before creating a new one.");
@@ -95,7 +103,7 @@ function addNewBuyer(address _buyer, string memory _buyerName, uint256 unitPrice
             buyerPendingTrans[_buyer].push(_orderId);
         emit OrderLocked(_orderId, _buyer, _seller);
     }
-    function cancelOrder(address _user, uint256 _orderId) external {
+    function cancelOrder(address _user, uint256 _orderId) public {
         Order storage order = orders[_orderId];
         if(order.status == OrderStatus.Open){
             require(order.seller == _user, "Only the seller can cancel the order");
@@ -131,7 +139,7 @@ function addNewBuyer(address _buyer, string memory _buyerName, uint256 unitPrice
         }
         emit OrderCompleted(_buyer, _orderId);
     }
-    function receiveOrder(address _seller, address _buyer, uint256 _orderId) external {
+    function receiveOrder(address _seller, address _buyer, uint256 _orderId) public {
         // Only the seller can receive the order
         Order storage order = orders[_orderId];
         require(order.seller == _seller, "Only the seller can receive the order");
@@ -189,8 +197,18 @@ function addNewBuyer(address _buyer, string memory _buyerName, uint256 unitPrice
     function getBuyerInfoByAddress(address _buyer) external view returns (BuyerInfo memory) {
         return publicbuyers[_buyer];
     }
-    function changeBuyerStatus(address _buyer) external {
+    function changeBuyerStatus(address _buyer) external onlyOwner {
         require(publicbuyers[_buyer].buyerAddress != address(0), "Buyer does not exist");
         publicbuyers[_buyer].buyerStatus = !publicbuyers[_buyer].buyerStatus;
+    }
+    function settleDispute(uint256 _orderId, bool favorSeller) external onlyOwner {
+        Order storage order = orders[_orderId];
+        require(order.status == OrderStatus.Locked || order.status == OrderStatus.Completed, "Order is not in a disputable state");
+    
+        if(favorSeller){
+            cancelOrder(order.buyer, _orderId);
+        } else {
+            receiveOrder(order.seller, order.buyer, _orderId);
+        }
     }
 }

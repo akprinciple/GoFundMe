@@ -90,4 +90,58 @@ contract P2PTest is Test {
         assertTrue(receivedOrder.status == P2P.OrderStatus.Received);
         assertEq(p2p.getActiveOrderId(seller), 0);
     }
+
+    function testSettleDispute_FavorSeller() public {
+        p2p.addNewBuyer(buyer, "Bob", 1500);
+        
+        vm.prank(seller);
+        p2p.createOrder(seller, 100, "Alice Account", "1234567890", "Bank A");
+
+        vm.prank(seller);
+        p2p.lockOrder(seller, buyer, 1);
+
+        p2p.settleDispute(1, true); // Owner settles in favor of seller
+
+        P2P.Order memory order = p2p.getOrder(1);
+        assertTrue(order.status == P2P.OrderStatus.Cancelled);
+        assertEq(p2p.getActiveOrderId(seller), 0);
+    }
+
+    function testSettleDispute_FavorBuyer() public {
+        p2p.addNewBuyer(buyer, "Bob", 1500);
+        
+        vm.prank(seller);
+        p2p.createOrder(seller, 100, "Alice Account", "1234567890", "Bank A");
+
+        vm.prank(seller);
+        p2p.lockOrder(seller, buyer, 1);
+
+        p2p.settleDispute(1, false); // Owner settles in favor of buyer
+
+        P2P.Order memory order = p2p.getOrder(1);
+        assertTrue(order.status == P2P.OrderStatus.Received);
+        assertEq(p2p.getActiveOrderId(seller), 0);
+    }
+
+    function testSettleDispute_RevertInvalidState() public {
+        vm.prank(seller);
+        p2p.createOrder(seller, 100, "Alice Account", "1234567890", "Bank A");
+
+        vm.expectRevert("Order is not in a disputable state");
+        p2p.settleDispute(1, true);
+    }
+
+    function testSettleDispute_RevertNotOwner() public {
+        p2p.addNewBuyer(buyer, "Bob", 1500);
+        
+        vm.prank(seller);
+        p2p.createOrder(seller, 100, "Alice Account", "1234567890", "Bank A");
+
+        vm.prank(seller);
+        p2p.lockOrder(seller, buyer, 1);
+
+        vm.prank(buyer); // buyer tries to act as admin
+        vm.expectRevert("Only owner can perform this action");
+        p2p.settleDispute(1, true);
+    }
 }
